@@ -29,11 +29,27 @@ const (
 // Client is a SyncForge client SDK instance: one local, offline-capable
 // store representing a single device.
 type Client struct {
-	db         *sqlite.DB
-	deviceID   string
-	clock      *hlc.Clock
-	baseURL    string
-	httpClient *http.Client
+	db          *sqlite.DB
+	deviceID    string
+	clock       *hlc.Clock
+	baseURL     string
+	httpClient  *http.Client
+	retryPolicy RetryPolicy
+}
+
+// Option customizes a Client at Open time.
+type Option func(*Client)
+
+// WithRetryPolicy overrides DefaultRetryPolicy for this client's sync
+// requests.
+func WithRetryPolicy(p RetryPolicy) Option {
+	return func(c *Client) { c.retryPolicy = p }
+}
+
+// WithHTTPClient overrides the *http.Client used for sync requests, e.g.
+// to set a timeout or a custom transport.
+func WithHTTPClient(hc *http.Client) Option {
+	return func(c *Client) { c.httpClient = hc }
 }
 
 // Record is an application-facing view of a synced record: just the
@@ -58,7 +74,7 @@ type SyncResult struct {
 // this happens before any network access, so a device has a stable
 // identity (and can make offline writes) even if it never reaches a
 // server.
-func Open(dbPath, serverURL string) (*Client, error) {
+func Open(dbPath, serverURL string, opts ...Option) (*Client, error) {
 	db, err := sqlite.Open(dbPath)
 	if err != nil {
 		return nil, fmt.Errorf("client: open local store: %w", err)
@@ -78,13 +94,18 @@ func Open(dbPath, serverURL string) (*Client, error) {
 		}
 	}
 
-	return &Client{
-		db:         db,
-		deviceID:   deviceID,
-		clock:      hlc.NewClock(deviceID),
-		baseURL:    serverURL,
-		httpClient: http.DefaultClient,
-	}, nil
+	c := &Client{
+		db:          db,
+		deviceID:    deviceID,
+		clock:       hlc.NewClock(deviceID),
+		baseURL:     serverURL,
+		httpClient:  http.DefaultClient,
+		retryPolicy: DefaultRetryPolicy,
+	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c, nil
 }
 
 // Close closes the local store.
