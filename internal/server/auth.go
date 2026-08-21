@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/google/uuid"
 	"github.com/stan-ley-tech/SyncForge/internal/storage/sqlite"
 	"github.com/stan-ley-tech/SyncForge/pkg/api"
 )
@@ -70,6 +69,10 @@ func (s *Server) handleRegisterDevice(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid request body: "+err.Error())
 		return
 	}
+	if strings.TrimSpace(req.DeviceID) == "" {
+		writeError(w, http.StatusBadRequest, "device_id is required")
+		return
+	}
 	if strings.TrimSpace(req.DeviceName) == "" {
 		writeError(w, http.StatusBadRequest, "device_name is required")
 		return
@@ -82,7 +85,7 @@ func (s *Server) handleRegisterDevice(w http.ResponseWriter, r *http.Request) {
 	}
 
 	dev := sqlite.Device{
-		DeviceID:  uuid.NewString(),
+		DeviceID:  req.DeviceID,
 		Name:      req.DeviceName,
 		TokenHash: hashToken(token),
 		CreatedAt: nowFunc(),

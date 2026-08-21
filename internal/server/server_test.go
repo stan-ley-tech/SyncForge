@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"testing"
 
+	"github.com/google/uuid"
 	"github.com/stan-ley-tech/SyncForge/internal/storage/sqlite"
 	"github.com/stan-ley-tech/SyncForge/pkg/api"
 )
@@ -63,14 +64,41 @@ func doJSON(t *testing.T, method, url, token string, body, out any) *http.Respon
 func registerDevice(t *testing.T, baseURL, name string) api.RegisterDeviceResponse {
 	t.Helper()
 	var out api.RegisterDeviceResponse
-	resp := doJSON(t, http.MethodPost, baseURL+"/v1/devices/register", "", api.RegisterDeviceRequest{DeviceName: name}, &out)
+	req := api.RegisterDeviceRequest{DeviceID: uuid.NewString(), DeviceName: name}
+	resp := doJSON(t, http.MethodPost, baseURL+"/v1/devices/register", "", req, &out)
 	if resp.StatusCode != http.StatusCreated {
 		t.Fatalf("register device: expected 201, got %d", resp.StatusCode)
 	}
-	if out.DeviceID == "" || out.DeviceToken == "" {
-		t.Fatalf("register device: expected non-empty id/token, got %+v", out)
+	if out.DeviceID != req.DeviceID {
+		t.Fatalf("register device: expected server to echo back the client-chosen device_id, got %+v", out)
+	}
+	if out.DeviceToken == "" {
+		t.Fatalf("register device: expected non-empty token, got %+v", out)
 	}
 	return out
+}
+
+func TestRegisterDeviceIsIdempotentOnDeviceID(t *testing.T) {
+	srv, _ := newTestServer(t)
+	id := uuid.NewString()
+
+	var first, second api.RegisterDeviceResponse
+	doJSON(t, http.MethodPost, srv.URL+"/v1/devices/register", "", api.RegisterDeviceRequest{DeviceID: id, DeviceName: "Laptop"}, &first)
+	doJSON(t, http.MethodPost, srv.URL+"/v1/devices/register", "", api.RegisterDeviceRequest{DeviceID: id, DeviceName: "Laptop"}, &second)
+
+	if first.DeviceID != second.DeviceID {
+		t.Fatalf("expected re-registering the same device_id to keep the same id, got %q then %q", first.DeviceID, second.DeviceID)
+	}
+	// Re-registering rotates the token, so the old one must stop working...
+	resp := doJSON(t, http.MethodGet, srv.URL+"/v1/sync/status", first.DeviceToken, nil, nil)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected the old token to be rejected after rotation, got %d", resp.StatusCode)
+	}
+	// ...while the new one does.
+	resp = doJSON(t, http.MethodGet, srv.URL+"/v1/sync/status", second.DeviceToken, nil, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected the rotated token to work, got %d", resp.StatusCode)
+	}
 }
 
 func TestRegisterDevice(t *testing.T) {

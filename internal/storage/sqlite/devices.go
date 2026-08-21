@@ -17,10 +17,14 @@ type Device struct {
 	CreatedAt time.Time
 }
 
-// CreateDevice registers a new device.
+// CreateDevice registers a device. Registering the same DeviceID again
+// rotates its name/token (created_at is preserved) rather than failing, so
+// a client that lost its registration response can safely retry.
 func (d *DB) CreateDevice(ctx context.Context, dev Device) error {
-	_, err := d.sqldb.ExecContext(ctx, `INSERT INTO devices (device_id, name, token_hash, created_at)
-		VALUES (?, ?, ?, ?)`, dev.DeviceID, dev.Name, dev.TokenHash, dev.CreatedAt.UTC().Format(time.RFC3339Nano))
+	_, err := d.sqldb.ExecContext(ctx, `
+		INSERT INTO devices (device_id, name, token_hash, created_at) VALUES (?, ?, ?, ?)
+		ON CONFLICT(device_id) DO UPDATE SET name = excluded.name, token_hash = excluded.token_hash`,
+		dev.DeviceID, dev.Name, dev.TokenHash, dev.CreatedAt.UTC().Format(time.RFC3339Nano))
 	return err
 }
 
