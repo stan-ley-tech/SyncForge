@@ -130,3 +130,14 @@ func (d *DB) WithTx(ctx context.Context, fn func(tx *sql.Tx) error) error {
 	}
 	return tx.Commit()
 }
+
+// CurrentCheckpoint returns the server_seq of the most recently assigned
+// op — the server's current sync checkpoint (0 if none has ever been
+// assigned).
+func (d *DB) CurrentCheckpoint(ctx context.Context) (int64, error) {
+	var next int64
+	if err := d.sqldb.QueryRowContext(ctx, `SELECT next FROM server_counter WHERE id = 1`).Scan(&next); err != nil {
+		return 0, err
+	}
+	return next - 1, nil
+}
